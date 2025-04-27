@@ -67,9 +67,18 @@ DATABASE_URL = "postgresql://%s:%s@%s:%s/%s" % (quote_plus(os.getenv("DB_USER"))
 
 engine = create_engine(DATABASE_URL)
 
+# def load_data_to_db(conn, file_path):
+#     """Load data from CSV file to the database."""
+#     with open(file_path, 'r') as f:
+#         next(f)  # Skip the header row
+#         with conn.cursor() as cur:
+#             cur.copy_expert("COPY products FROM STDIN WITH CSV HEADER", f)
+#     f.close()
+#     conn.commit()
+
 @st.cache_data
 def get_categories():
-    query = text("SELECT DISTINCT masterCategory FROM products_pgconf order by 1;")
+    query = text("SELECT DISTINCT masterCategory FROM products order by 1;")
     with engine.connect() as connection:
         result = connection.execute(query)
         # Fetch the result set as a list of dictionaries for easier access
@@ -78,7 +87,7 @@ def get_categories():
 
 @st.cache_data
 def get_genders():
-    query = text("SELECT DISTINCT gender FROM products_pgconf order by 1;")
+    query = text("SELECT DISTINCT gender FROM products order by 1;")
     with engine.connect() as connection:
         result = connection.execute(query)
         # Fetch the result set as a list of dictionaries for easier access
@@ -89,7 +98,7 @@ def get_genders():
 @st.cache_data
 def get_products_by_category(category):
     query = text(
-        "SELECT productDisplayName, img_id FROM products_pgconf WHERE masterCategory = :category order by 1 limit 30;"
+        "SELECT productDisplayName, img_id FROM products WHERE masterCategory = :category order by 1 limit 30;"
     )
     with engine.connect() as connection:
         result = connection.execute(query, {"category": category})
@@ -117,7 +126,7 @@ def get_product_details_in_category(img_id):
     """
 
     query = text(
-        "SELECT productDisplayName, img_id FROM products_pgconf WHERE img_id = :img_id;"
+        "SELECT productDisplayName, img_id FROM products WHERE img_id = :img_id;"
     )
 
     with engine.connect() as connection:
@@ -178,7 +187,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 f"""WITH filtered_products AS (
                 -- First get all men's products
                 SELECT img_id, productdisplayname
-                FROM products_pgconf 
+                FROM products 
                 WHERE gender = '{selected_gender}'
                 )
                 SELECT 
@@ -187,7 +196,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 FROM filtered_products fp
                 CROSS JOIN LATERAL (
                     SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score 
-                    FROM products_embeddings_vchord 
+                    FROM benchmark_embeddings_pgvec 
                     ORDER BY embedding <=> '{text_embeddings}' 
                     LIMIT 20
                 ) AS result
@@ -196,11 +205,11 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 )
             else:
                 cur.execute(
-                    f"""SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score FROM products_embeddings_vchord ORDER BY embedding <=> '{text_embeddings}' LIMIT 10;"""
+                    f"""SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score FROM benchmark_embeddings_pgvec ORDER BY embedding <=> '{text_embeddings}' LIMIT 10;"""
                 )
         elif search_mode == "bm25":
             cur.execute(
-                f"""SELECT img_id, ts_rank(to_tsvector(productdisplayname), plainto_tsquery('{text_query}')) AS score FROM products_pgconf WHERE to_tsvector(productdisplayname) @@ plainto_tsquery('{text_query}') ORDER BY score DESC LIMIT 10;"""
+                f"""SELECT img_id, ts_rank(to_tsvector(productdisplayname), plainto_tsquery('{text_query}')) AS score FROM products WHERE to_tsvector(productdisplayname) @@ plainto_tsquery('{text_query}') ORDER BY score DESC LIMIT 10;"""
             )
         results = cur.fetchall()
         keys = [row[0] for row in results]
@@ -227,6 +236,8 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
     finally:
         cur.close()
 
+st.session_state.text_retriever_name = "recommend_products"
+st.session_state.img_retriever_name = "recom_images"
 st.session_state.s3_bucket_name = "public-ai-team"
 if "db_conn" not in st.session_state or st.session_state.db_conn.closed:
     st.session_state.db_conn = create_db_connection()
@@ -317,12 +328,11 @@ with right_column:
                 with conn.cursor() as cur:
                     img_embedding = generate_image_embeddings(image)
                     if selected_gender != "None":
-                        # Hybrid search using image and gender filter
                         cur.execute(
                         f"""WITH filtered_products AS (
-                        -- First get all men's products_pgconf
+                        -- First get all men's products
                         SELECT img_id, productdisplayname
-                        FROM products_pgconf 
+                        FROM products 
                         WHERE gender = '{selected_gender}'
                         )
                         SELECT 
@@ -331,7 +341,7 @@ with right_column:
                         FROM filtered_products fp
                         CROSS JOIN LATERAL (
                             SELECT img_id, 1-(image_embedding <-> '{img_embedding}') AS score 
-                            FROM products_embeddings_vchord
+                            FROM products_embeddings 
                             ORDER BY image_embedding <-> '{img_embedding}' 
                             LIMIT 10
                         ) AS result
@@ -339,9 +349,8 @@ with right_column:
                         ORDER BY result.score ASC LIMIT 10;"""
                     )
                     else:
-                        # Semantic search using image
                         cur.execute(
-                            f"""SELECT img_id, 1-(image_embedding <-> '{img_embedding}') AS score FROM products_embeddings_vchord ORDER BY image_embedding <-> '{img_embedding}' LIMIT 10;"""                 
+                            f"""SELECT img_id, 1-(image_embedding <-> '{img_embedding}') AS score FROM products_embeddings ORDER BY image_embedding <-> '{img_embedding}' LIMIT 10;"""                 
                         )
 
                     results = cur.fetchall()
