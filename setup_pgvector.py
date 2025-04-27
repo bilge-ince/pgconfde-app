@@ -37,7 +37,6 @@ def _create_tables(cur):
 
 def create_pgvector_indexes(conn):
     cur = conn.cursor()
-    # partial index
     # L2 
     cur.execute(
         """CREATE INDEX ON products_embeddings_pgvector USING hnsw (embedding vector_l2_ops)

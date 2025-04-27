@@ -12,7 +12,7 @@ from psycopg2 import sql
 
 def create_img_embedding_table(conn: psycopg2.extensions.connection)-> None:
     with conn.cursor() as cur:
-        cur.execute("""CREATE TABLE IF NOT EXISTS products_embeddings_ollama (img_id INTEGER PRIMARY KEY REFERENCES products(img_id) ON DELETE CASCADE,
+        cur.execute("""CREATE TABLE IF NOT EXISTS products_embeddings_ollama (img_id INTEGER PRIMARY KEY REFERENCES products_pgconf(img_id) ON DELETE CASCADE,
             embedding vector(4096));""")
     
 def create_generic_tables(conn: psycopg2.extensions.connection)-> None:

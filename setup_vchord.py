@@ -19,14 +19,13 @@ def initialize_database(conn):
     """Initialize the database with required extensions and tables."""
     with conn.cursor() as cur:
         _create_tables(cur)
-        # _populate_test_images_data(cur, '/dataset/images')
 
 
 def _create_tables(cur):
     """Create required tables."""
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS products_embeddings(
-            img_id INTEGER PRIMARY KEY REFERENCES products(img_id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS products_embeddings_vchord(
+            img_id INTEGER PRIMARY KEY REFERENCES products_pgconf(img_id) ON DELETE CASCADE,
             embedding vector(384),
             image_embedding vector(512));
     """)
@@ -34,14 +33,14 @@ def _create_tables(cur):
 def create_vchord_indexes(conn):
     cur = conn.cursor()
     # cosine for text embedding
-    cur.execute("""CREATE INDEX ON products_embeddings USING vchordrq (embedding vector_cosine_ops) WITH (options = $$
+    cur.execute("""CREATE INDEX ON products_embeddings_vchord USING vchordrq (embedding vector_cosine_ops) WITH (options = $$
     residual_quantization = false
     [build.internal]
     lists = [1000]
     spherical_centroids = true
     $$);""")
     #L2 for image embedding
-    cur.execute("""CREATE INDEX ON products_embeddings USING vchordrq (image_embedding vector_l2_ops) WITH (options = $$
+    cur.execute("""CREATE INDEX ON products_embeddings_vchord USING vchordrq (image_embedding vector_l2_ops) WITH (options = $$
     residual_quantization = true
     [build.internal]
     lists = [1000]
@@ -67,7 +66,7 @@ def generate_store_embeddings(conn, base_path, batch=10):
         if batch_text:
             embedding_output = generate_ollama_embeddings(batch_text)
             cursor.execute(
-                                "INSERT INTO products_embeddings_ollama (img_id, embedding) "
+                                "INSERT INTO products_embeddings_vchord (img_id, embedding) "
                                 "VALUES (%s, %s)",
                                 (result[i][0], embedding_output)
                             )
