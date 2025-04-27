@@ -5,10 +5,12 @@ import os
 
 from io import StringIO
 from PIL import Image
+
 # from transformers import CLIPModel, CLIPProcessor, AutoTokenizer, AutoModel
 import sys
+
 # Add the parent directory of 'code' to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 print("Python search paths:", sys.path)  # Debugging line
 from utils.db_connection import create_db_connection
@@ -20,32 +22,26 @@ def initialize_database(conn):
     with conn.cursor() as cur:
         _create_tables(cur)
 
-
 def _create_tables(cur):
     """Create required tables."""
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS products_embeddings_vchord(
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS products_embeddings_pgvector(
             img_id INTEGER PRIMARY KEY REFERENCES products_pgconf(img_id) ON DELETE CASCADE,
             embedding vector(384),
             image_embedding vector(512));
-    """)
+    """
+    )
 
-def create_vchord_indexes(conn):
+
+def create_pgvector_indexes(conn):
     cur = conn.cursor()
-    # cosine for text embedding
-    cur.execute("""CREATE INDEX ON products_embeddings_vchord USING vchordrq (embedding vector_cosine_ops) WITH (options = $$
-    residual_quantization = false
-    [build.internal]
-    lists = [1000]
-    spherical_centroids = true
-    $$);""")
-    #L2 for image embedding
-    cur.execute("""CREATE INDEX ON products_embeddings_vchord USING vchordrq (image_embedding vector_l2_ops) WITH (options = $$
-    residual_quantization = true
-    [build.internal]
-    lists = [1000]
-    spherical_centroids = false
-    $$);""")
+    # L2 
+    cur.execute(
+        """CREATE INDEX ON products_embeddings_pgvector USING hnsw (embedding vector_l2_ops)
+WITH (m = 16, ef_construction = 64);"""
+    )
 
 def generate_store_embeddings(conn, base_path, batch=10):
     """
@@ -57,7 +53,7 @@ def generate_store_embeddings(conn, base_path, batch=10):
     # Load the model and processor with timing
     fetch_start = time.time()
     cursor = conn.cursor()
-    cursor.execute("SELECT img_id, productdisplayname FROM product_pgconf;")
+    cursor.execute("SELECT img_id, productdisplayname FROM products_pgconf;")
     result = cursor.fetchall()
     fetch_end = time.time()
     total_rows_inserted = 0
@@ -66,16 +62,17 @@ def generate_store_embeddings(conn, base_path, batch=10):
         if batch_text:
             embedding_output = generate_ollama_embeddings(batch_text)
             cursor.execute(
-                                "INSERT INTO products_embeddings_vchord (img_id, embedding) "
-                                "VALUES (%s, %s)",
-                                (result[i][0], embedding_output)
-                            )
-    
+                "INSERT INTO products_embeddings_pgvector (img_id, embedding) "
+                "VALUES (%s, %s)",
+                (result[i][0], embedding_output),
+            )
+
     function_end_time = time.time()
     total_time = function_end_time - function_start_time
     print(f"Total Rows: {total_rows_inserted}")
     print(f"Total function execution time: {total_time} seconds")
     print(f"Fetching time: {fetch_end - fetch_start} seconds")
+
 
 def load_images_batch(batch_ids, base_path, processor):
     images, valid_paths = [], []
@@ -91,25 +88,33 @@ def load_images_batch(batch_ids, base_path, processor):
             print(f"Failed to process image {image_path}: {e}")
             continue  # Skip problematic images
     if images:
-        return processor(text=["dummy text"] * len(images), images=images, return_tensors="pt", padding=True)
+        return processor(
+            text=["dummy text"] * len(images),
+            images=images,
+            return_tensors="pt",
+            padding=True,
+        )
     else:
         return None, []
 
+
 def main():
-        conn=None
-        try:
-            conn = create_db_connection() # Connect to the database
-            conn.autocommit = True  # Enable autocommit for creating the database
-            start_time = time.time()
-            initialize_database(conn) # Initialize the db with aidb, pgfs extensions and necessary tables
-            generate_store_embeddings(conn, 'dataset/images', 25) # Create and refresh the retriever for the products table and images bucket
-            vector_time = time.time() - start_time
-            print(f"Total process time: {vector_time:.4f} seconds.")
-        except (Exception, psycopg2.DatabaseError) as error:
-            print(f"Error: {error}")
-        finally:
-            if conn:
-                    conn.close()
+    conn = None
+    try:
+        conn = create_db_connection()  # Connect to the database
+        conn.autocommit = True  # Enable autocommit for creating the database
+        start_time = time.time()
+        generate_store_embeddings(
+            conn, "dataset/images", 25
+        )  # Create and refresh the retriever for the products table and images bucket
+        vector_time = time.time() - start_time
+        print(f"Total process time: {vector_time:.4f} seconds.")
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Error: {error}")
+    finally:
+        if conn:
+            conn.close()
+
 
 if __name__ == "__main__":
     main()

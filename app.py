@@ -187,7 +187,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 FROM filtered_products fp
                 CROSS JOIN LATERAL (
                     SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score 
-                    FROM products_embeddings_vchord 
+                    FROM products_embeddings_pgvector 
                     ORDER BY embedding <=> '{text_embeddings}' 
                     LIMIT 20
                 ) AS result
@@ -196,7 +196,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 )
             else:
                 cur.execute(
-                    f"""SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score FROM products_embeddings_vchord ORDER BY embedding <=> '{text_embeddings}' LIMIT 10;"""
+                    f"""SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score FROM products_embeddings_pgvector ORDER BY embedding <=> '{text_embeddings}' LIMIT 10;"""
                 )
         elif search_mode == "bm25":
             cur.execute(
@@ -331,7 +331,7 @@ with right_column:
                         FROM filtered_products fp
                         CROSS JOIN LATERAL (
                             SELECT img_id, 1-(image_embedding <-> '{img_embedding}') AS score 
-                            FROM products_embeddings_vchord
+                            FROM products_embeddings_pgvector
                             ORDER BY image_embedding <-> '{img_embedding}' 
                             LIMIT 10
                         ) AS result
@@ -341,7 +341,7 @@ with right_column:
                     else:
                         # Semantic search using image
                         cur.execute(
-                            f"""SELECT img_id, 1-(image_embedding <-> '{img_embedding}') AS score FROM products_embeddings_vchord ORDER BY image_embedding <-> '{img_embedding}' LIMIT 10;"""                 
+                            f"""SELECT img_id, 1-(image_embedding <-> '{img_embedding}') AS score FROM products_embeddings_pgvector ORDER BY image_embedding <-> '{img_embedding}' LIMIT 10;"""                 
                         )
 
                     results = cur.fetchall()
