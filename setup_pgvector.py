@@ -28,7 +28,7 @@ def _create_tables(cur):
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS products_embeddings_pgvector(
-            img_id INTEGER PRIMARY KEY REFERENCES products_pgconf(img_id) ON DELETE CASCADE,
+            id INTEGER PRIMARY KEY REFERENCES products_pgconf(img_id) ON DELETE CASCADE,
             embeddings vector(384),
             image_embedding vector(512));
     """

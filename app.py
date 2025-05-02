@@ -188,7 +188,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 FROM filtered_products fp
                 CROSS JOIN LATERAL (
                     SELECT id, (embeddings <=> '{text_embeddings}') AS score 
-                    FROM pgconf_vector_vector 
+                    FROM products_embeddings_pgvector 
                     ORDER BY score
                     LIMIT 20
                 ) AS result
@@ -197,7 +197,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 )
             else:
                 cur.execute(
-                    f"""SELECT id, (embeddings <=> '{text_embeddings}') AS score FROM pgconf_vector_vector ORDER BY score LIMIT 10;"""
+                    f"""SELECT id, (embeddings <=> '{text_embeddings}') AS score FROM products_embeddings_pgvector ORDER BY score LIMIT 10;"""
                 )
         elif search_mode == "bm25":
             cur.execute(
