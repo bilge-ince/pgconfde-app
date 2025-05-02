@@ -12,7 +12,7 @@ import ollama
 from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
 from utils.db_connection import create_db_connection
-from utils.generate_embeddings import generate_text_embeddings, generate_image_embeddings, generate_ollama_embeddings
+from utils.generate_embeddings import generate_short_text_embeddings, generate_image_embeddings
 
 from botocore.handlers import disable_signing
 
@@ -168,7 +168,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
             
             # Load the model and processor
             
-            text_embeddings = generate_text_embeddings(text_query)
+            text_embeddings = generate_short_text_embeddings(text_query)
             if selected_gender != "None":
             # Filter products through CLIP Model
             # This is a hybrid search using text and limited only with the number of images in the S3 bucket
@@ -182,21 +182,22 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 WHERE gender = '{selected_gender}'
                 )
                 SELECT 
-                    result.img_id,
+                    result.id,
+                    fp.img_id,
                     result.score
                 FROM filtered_products fp
                 CROSS JOIN LATERAL (
-                    SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score 
-                    FROM products_embeddings_pgvector 
-                    ORDER BY embedding <=> '{text_embeddings}' 
+                    SELECT id, (embeddings <=> '{text_embeddings}') AS score 
+                    FROM pgconf_vector_vector 
+                    ORDER BY score
                     LIMIT 20
                 ) AS result
-                WHERE result.img_id = fp.img_id
-                ORDER BY result.score ASC LIMIT 10;"""
+                WHERE result.id = fp.img_id
+                ORDER BY result.score LIMIT 10;"""
                 )
             else:
                 cur.execute(
-                    f"""SELECT img_id, 1-(embedding <=> '{text_embeddings}') AS score FROM products_embeddings_pgvector ORDER BY embedding <=> '{text_embeddings}' LIMIT 10;"""
+                    f"""SELECT id, (embeddings <=> '{text_embeddings}') AS score FROM pgconf_vector_vector ORDER BY score LIMIT 10;"""
                 )
         elif search_mode == "bm25":
             cur.execute(

@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 print("Python search paths:", sys.path)  # Debugging line
 from utils.db_connection import create_db_connection
-from utils.generate_embeddings import generate_ollama_embeddings
+from utils.generate_embeddings import generate_text_embeddings
 
 
 def initialize_database(conn):
@@ -29,7 +29,7 @@ def _create_tables(cur):
         """
         CREATE TABLE IF NOT EXISTS products_embeddings_pgvector(
             img_id INTEGER PRIMARY KEY REFERENCES products_pgconf(img_id) ON DELETE CASCADE,
-            embedding vector(384),
+            embeddings vector(384),
             image_embedding vector(512));
     """
     )
@@ -39,13 +39,14 @@ def create_pgvector_indexes(conn):
     cur = conn.cursor()
     # L2 
     cur.execute(
-        """CREATE INDEX ON products_embeddings_pgvector USING hnsw (embedding vector_l2_ops)
-WITH (m = 16, ef_construction = 64);"""
+        """CREATE INDEX ON products_embeddings_pgvector USING hnsw (embeddings vector_l2_ops)
+WITH (m = 16, ef_construction = 100);"""
     )
+    # cur.execute("""SET hnsw.iterative_scan = relaxed_order;""")
 
 def generate_store_embeddings(conn, base_path, batch=10):
     """
-    This function is a specific implementation for vchord semantic search capability
+    This function is a specific implementation for pgvector semantic search capability
     """
     function_start_time = time.time()
     # Run for S3 bucket
@@ -60,9 +61,9 @@ def generate_store_embeddings(conn, base_path, batch=10):
     for i in range(3676, len(result)):
         batch_text = result[i][1]
         if batch_text:
-            embedding_output = generate_ollama_embeddings(batch_text)
+            embedding_output = generate_text_embeddings(batch_text)
             cursor.execute(
-                "INSERT INTO products_embeddings_pgvector (img_id, embedding) "
+                "INSERT INTO products_embeddings_pgvector (img_id, embeddings) "
                 "VALUES (%s, %s)",
                 (result[i][0], embedding_output),
             )
@@ -104,6 +105,8 @@ def main():
         conn = create_db_connection()  # Connect to the database
         conn.autocommit = True  # Enable autocommit for creating the database
         start_time = time.time()
+        initialize_database(conn)  # Initialize the db extensions and necessary tables
+        create_pgvector_indexes(conn)  # Create the indexes for pgvector
         generate_store_embeddings(
             conn, "dataset/images", 25
         )  # Create and refresh the retriever for the products table and images bucket

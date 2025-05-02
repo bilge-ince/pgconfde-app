@@ -12,7 +12,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 print("Python search paths:", sys.path)  # Debugging line
 from utils.db_connection import create_db_connection
-from utils.generate_embeddings import generate_ollama_embeddings
+from utils.generate_embeddings import generate_text_embeddings
 
 
 def initialize_database(conn):
@@ -46,6 +46,7 @@ def create_vchord_indexes(conn):
     lists = [1000]
     spherical_centroids = false
     $$);""")
+    
 
 def generate_store_embeddings(conn, base_path, batch=10):
     """
@@ -57,19 +58,17 @@ def generate_store_embeddings(conn, base_path, batch=10):
     # Load the model and processor with timing
     fetch_start = time.time()
     cursor = conn.cursor()
-    cursor.execute("SELECT img_id, productdisplayname FROM product_pgconf;")
+    cursor.execute("SELECT img_id, productdisplayname FROM products_pgconf;")
     result = cursor.fetchall()
     fetch_end = time.time()
     total_rows_inserted = 0
     for i in range(3676, len(result)):
         batch_text = result[i][1]
         if batch_text:
-            embedding_output = generate_ollama_embeddings(batch_text)
-            cursor.execute(
-                                "INSERT INTO products_embeddings_vchord (img_id, embedding) "
-                                "VALUES (%s, %s)",
-                                (result[i][0], embedding_output)
-                            )
+            embedding_output = generate_text_embeddings(batch_text)
+            insert_query = """INSERT INTO products_embeddings_vchord (img_id, embedding)
+                                VALUES (%s, %s)"""
+            cursor.execute(insert_query, (result[i][0], embedding_output))
     
     function_end_time = time.time()
     total_time = function_end_time - function_start_time
@@ -102,6 +101,7 @@ def main():
             conn.autocommit = True  # Enable autocommit for creating the database
             start_time = time.time()
             initialize_database(conn) # Initialize the db with aidb, pgfs extensions and necessary tables
+            create_vchord_indexes(conn) # Create the indexes for vchord
             generate_store_embeddings(conn, 'dataset/images', 25) # Create and refresh the retriever for the products table and images bucket
             vector_time = time.time() - start_time
             print(f"Total process time: {vector_time:.4f} seconds.")
