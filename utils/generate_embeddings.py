@@ -2,45 +2,40 @@ import numpy as np
 import ollama
 
 from transformers import CLIPModel, CLIPProcessor, AutoTokenizer, AutoModel
-from FlagEmbedding import BGEM3FlagModel
 
 
-def generate_short_text_embeddings(query):
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+def initialize_model(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", trust_remote_code=False):
+    """
+    Initialize the model and tokenizer for generating embeddings.
+    
+    Args:
+    model_name: str, name of the model to use for generating embeddings
+    trust_remote_code: bool, whether to trust remote code for the model
+    """
+    text_tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        
+    text_model = AutoModel.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+    return text_model, text_tokenizer
+
+
+def generate_short_text_embeddings(query, text_tokenizer=None, text_model=None):
     """
     Generate text embeddings using Sentence Transformers model
     
     Args:
     query: str, text to generate embeddings for pgvector
     """
-    text_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-        
-    text_model = AutoModel.from_pretrained("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-    text_inputs = text_tokenizer(text=query, return_tensors="pt")
-    text_model_output = text_model(**text_inputs)
-    text_embedding = text_model_output.last_hidden_state.mean(dim=1).squeeze().detach().cpu().numpy().tolist()
+    if text_tokenizer and text_model:
+        text_inputs = text_tokenizer(query, padding=True, truncation=True, return_tensors="pt")
+        text_model_output = text_model(**text_inputs)
+        text_embeddings = text_model_output.last_hidden_state.mean(dim=1).squeeze().detach().cpu().numpy().tolist()
+    else:
+        print("Text model and tokenizer are not initialized.")
+        return None
 
-    return text_embedding
-
-def generate_text_embeddings(query):
-    """
-    Generate text embeddings using Sentence Transformers model
-    
-    Args:
-    query: str, text to generate embeddings for pgvector
-    """
-    text_tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-m3")
-        
-    text_model = AutoModel.from_pretrained("BAAI/bge-m3")
-    # https://bge-model.com/tutorial/1_Embedding/1.2.4.html
-    model = BGEM3FlagModel('BAAI/bge-m3',  
-                       use_fp16=True)
-    text_model_output = model.encode(query, 
-                            batch_size=12, 
-                            max_length=2000, # If you don't need such a long length, you can set a smaller value to speed up the encoding process.
-                            )['dense_vecs']
-    text_embedding = text_model_output.last_hidden_state.mean(dim=1).squeeze().detach().cpu().numpy().tolist()
-
-    return text_embedding
+    return text_embeddings
 
 def generate_image_embeddings(image):
     """

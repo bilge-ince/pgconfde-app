@@ -12,7 +12,7 @@ import ollama
 from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
 from utils.db_connection import create_db_connection
-from utils.generate_embeddings import generate_short_text_embeddings, generate_image_embeddings
+from utils.generate_embeddings import generate_short_text_embeddings, generate_image_embeddings, initialize_model
 
 from botocore.handlers import disable_signing
 
@@ -62,14 +62,21 @@ st.title("Recommendation Engine")
 st.markdown("## Powered by Postgres")
 
 
-# Database connection details
+
 DATABASE_URL = "postgresql://%s:%s@%s:%s/%s" % (quote_plus(os.getenv("DB_USER")), quote_plus(os.getenv("DB_PASSWORD")), os.getenv("DB_HOST"), os.getenv("DB_PORT"), os.getenv("DB_NAME"))
 
 engine = create_engine(DATABASE_URL)
 
+@st.cache_resource
+def load_model():
+    model, tokenizer = initialize_model(
+        model_name="GritLM/GritLM-7B", trust_remote_code=True
+    )
+    return model, tokenizer
+
 @st.cache_data
 def get_categories():
-    query = text("SELECT DISTINCT masterCategory FROM products_pgconf order by 1;")
+    query = text("SELECT DISTINCT masterCategory FROM products_gritllm order by 1;")
     with engine.connect() as connection:
         result = connection.execute(query)
         # Fetch the result set as a list of dictionaries for easier access
@@ -89,7 +96,7 @@ def get_genders():
 @st.cache_data
 def get_products_by_category(category):
     query = text(
-        "SELECT productDisplayName, img_id FROM products_pgconf WHERE masterCategory = :category order by 1 limit 30;"
+        "SELECT productDisplayName, img_id FROM products_gritllm WHERE masterCategory = :category order by 1 limit 30;"
     )
     with engine.connect() as connection:
         result = connection.execute(query, {"category": category})
@@ -117,7 +124,7 @@ def get_product_details_in_category(img_id):
     """
 
     query = text(
-        "SELECT productDisplayName, img_id FROM products_pgconf WHERE img_id = :img_id;"
+        "SELECT productDisplayName, img_id FROM products_gritllm WHERE img_id = :img_id;"
     )
 
     with engine.connect() as connection:
@@ -167,8 +174,11 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
             # text_embeddings = generate_ollama_embeddings(text_query)
             
             # Load the model and processor
-            
-            text_embeddings = generate_short_text_embeddings(text_query)
+            with st.spinner("Loading model..."):
+                text_model, text_tokenizer = load_model()
+                st.success("Model ready!")
+
+            text_embeddings = generate_short_text_embeddings(text_query,text_tokenizer, text_model)
             if selected_gender != "None":
             # Filter products through CLIP Model
             # This is a hybrid search using text and limited only with the number of images in the S3 bucket
@@ -178,7 +188,7 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 f"""WITH filtered_products AS (
                 -- First get all men's products
                 SELECT img_id, productdisplayname
-                FROM products_pgconf 
+                FROM products_gritllm 
                 WHERE gender = '{selected_gender}'
                 )
                 SELECT 
@@ -188,24 +198,24 @@ def search_catalog(text_query, selected_gender=None, search_mode="text"):
                 FROM filtered_products fp
                 CROSS JOIN LATERAL (
                     SELECT id, (embeddings <=> '{text_embeddings}') AS score 
-                    FROM products_embeddings_pgvector 
+                    FROM products_embeddings_gritllm 
                     ORDER BY score
                     LIMIT 20
                 ) AS result
                 WHERE result.id = fp.img_id
-                ORDER BY result.score LIMIT 10;"""
+                ORDER BY result.score LIMIT 11;"""
                 )
             else:
                 cur.execute(
-                    f"""SELECT id, (embeddings <=> '{text_embeddings}') AS score FROM products_embeddings_pgvector ORDER BY score LIMIT 10;"""
+                    f"""SELECT id, (embeddings <=> '{text_embeddings}') AS score FROM products_embeddings_gritllm ORDER BY score LIMIT 11;"""
                 )
         elif search_mode == "bm25":
             cur.execute(
-                f"""SELECT img_id, ts_rank(to_tsvector(productdisplayname), plainto_tsquery('{text_query}')) AS score FROM products_pgconf WHERE to_tsvector(productdisplayname) @@ plainto_tsquery('{text_query}') ORDER BY score DESC LIMIT 10;"""
+                f"""SELECT img_id, ts_rank(to_tsvector(productdisplayname), plainto_tsquery('{text_query}')) AS score FROM products_gritllm WHERE to_tsvector(productdisplayname) @@ plainto_tsquery('{text_query}') ORDER BY score DESC LIMIT 11;"""
             )
         results = cur.fetchall()
         keys = [row[0] for row in results]
-
+        print(results)
        # Extract only the filenames from the results
         query_time = time.time() - start_time
         st.write(f"Querying similar catalog took {query_time:.4f} seconds.")
